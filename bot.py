@@ -9,8 +9,8 @@ import schedule
 import threading
 import time
 
-TELEGRAM_TOKEN = "8824760324:AAHmjfvpXSiCxb7Ri0K9PeSAfYTgexzM8JQ"
-WEATHER_API_KEY = "a02a62d28436079600a4760b0c275932"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
 USERS_FILE = "users.json"
 
 CITY_TRANSLATION = {
@@ -239,7 +239,6 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
-    # Запускаем планировщик в отдельном потоке
     thread = threading.Thread(target=scheduler_thread, daemon=True)
     thread.start()
     
