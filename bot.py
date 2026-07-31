@@ -1,6 +1,6 @@
 import json
 import os
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 import requests
@@ -8,9 +8,11 @@ from datetime import datetime
 import schedule
 import threading
 import time
+import pytz
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
+TIMEZONE = os.environ.get("TZ", "Europe/Moscow")
 USERS_FILE = "users.json"
 
 CITY_TRANSLATION = {
@@ -87,6 +89,13 @@ def translate_city(city):
 users = load_users()
 application_global = None
 
+def get_menu_keyboard():
+    keyboard = [
+        ['🌤 Погода сейчас', '⚙️ Установить город'],
+        ['❓ Справка']
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 def get_weather(city):
     try:
         city_en = translate_city(city)
@@ -128,77 +137,82 @@ def get_weather(city):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = """👋 Привет! Я бот прогноза погоды.
 
-Просто напишите название города на русском или английском (например: Москва, Новосибирск или Moscow) и я установлю его для вас.
+Просто напишите название города (Москва, Казань и т.д.) или используйте кнопки ниже.
 
-В 8:00 каждый день вы будете получать прогноз погоды для вашего города.
-
-Команды:
-/setcity <город> — установить город
-/weather — получить текущую погоду
-/help — справка"""
-    await update.message.reply_text(message)
+В 8:00 каждый день вы будете получать прогноз для вашего города."""
+    await update.message.reply_text(message, reply_markup=get_menu_keyboard())
 
 async def setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
     if not context.args:
-        await update.message.reply_text("❌ Укажите город. Пример: /setcity Москва или /setcity Moscow")
+        await update.message.reply_text("❌ Укажите город. Пример: Москва или Moscow", reply_markup=get_menu_keyboard())
         return
     
     city = " ".join(context.args)
     weather_msg = get_weather(city)
     
     if not weather_msg:
-        await update.message.reply_text(f"❌ Город '{city}' не найден. Проверьте написание.")
+        await update.message.reply_text(f"❌ Город '{city}' не найден.", reply_markup=get_menu_keyboard())
         return
     
     users[user_id] = city
     save_users(users)
     
-    await update.message.reply_text(f"✅ Город установлен: <b>{city.title()}</b>\n\nВ 8:00 каждый день я буду присылать вам прогноз!", parse_mode='HTML')
+    await update.message.reply_text(f"✅ Город установлен: <b>{city.title()}</b>", parse_mode='HTML', reply_markup=get_menu_keyboard())
 
 async def weather(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     
     if user_id not in users:
-        await update.message.reply_text("❌ Сначала установите город (напишите название города)")
+        await update.message.reply_text("❌ Сначала установите город (напишите название)", reply_markup=get_menu_keyboard())
         return
     
     city = users[user_id]
     await update.message.chat.send_action(ChatAction.TYPING)
     weather_msg = get_weather(city)
     if weather_msg:
-        await update.message.reply_text(weather_msg, parse_mode='HTML')
+        await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
     else:
-        await update.message.reply_text("❌ Ошибка при получении погоды")
+        await update.message.reply_text("❌ Ошибка при получении погоды", reply_markup=get_menu_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""📖 <b>Справка</b>
 
-Напишите название города на русском или английском (Москва, Казань, Moscow и т.д.)
-/weather — получить погоду прямо сейчас
-/setcity <город> — установить город через команду
-/help — эта справка""", parse_mode='HTML')
+Напишите название города (Москва, Казань и т.д.)
+🌤 Погода сейчас — получить погоду
+⚙️ Установить город — установить новый город
+❓ Справка — эта справка""", parse_mode='HTML', reply_markup=get_menu_keyboard())
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    city = update.message.text.strip()
+    text = update.message.text.strip()
     
-    if city.startswith('/'):
+    if text == "🌤 Погода сейчас":
+        await weather(update, context)
+        return
+    elif text == "⚙️ Установить город":
+        await update.message.reply_text("Напишите название города:", reply_markup=get_menu_keyboard())
+        return
+    elif text == "❓ Справка":
+        await help_command(update, context)
         return
     
-    weather_msg = get_weather(city)
+    if text.startswith('/'):
+        return
+    
+    weather_msg = get_weather(text)
     
     if not weather_msg:
-        await update.message.reply_text(f"❌ Город '{city}' не найден. Проверьте написание.")
+        await update.message.reply_text(f"❌ Город '{text}' не найден.", reply_markup=get_menu_keyboard())
         return
     
-    users[user_id] = city
+    users[user_id] = text
     save_users(users)
     
-    city_en = translate_city(city)
-    await update.message.reply_text(f"✅ Город установлен: <b>{city_en.title()}</b>\n\n", parse_mode='HTML')
-    await update.message.reply_text(weather_msg, parse_mode='HTML')
+    city_en = translate_city(text)
+    await update.message.reply_text(f"✅ Город установлен: <b>{city_en.title()}</b>", parse_mode='HTML', reply_markup=get_menu_keyboard())
+    await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
 
 def send_weather_to_all():
     print(f"📤 Рассылка погоды... ({datetime.now().strftime('%H:%M:%S')})")
@@ -214,13 +228,15 @@ def send_weather_to_all():
                 asyncio.run(application_global.bot.send_message(
                     chat_id=int(user_id),
                     text=weather_msg,
-                    parse_mode='HTML'
+                    parse_mode='HTML',
+                    reply_markup=get_menu_keyboard()
                 ))
                 print(f"✅ Отправлено {user_id} ({city})")
         except Exception as e:
             print(f"❌ Ошибка для {user_id}: {e}")
 
 def scheduler_thread():
+    tz = pytz.timezone(TIMEZONE)
     schedule.every().day.at("08:00").do(send_weather_to_all)
     
     while True:
@@ -244,6 +260,7 @@ def main():
     
     print("🤖 Бот запущен!")
     print("📅 Расписание: каждый день в 8:00")
+    print(f"🕐 Часовой пояс: {TIMEZONE}")
     print("⏰ Текущее время:", datetime.now().strftime('%H:%M:%S'))
     
     application.run_polling()
