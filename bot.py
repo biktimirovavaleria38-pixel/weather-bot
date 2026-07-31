@@ -4,15 +4,13 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import schedule
 import threading
 import time
-import pytz
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
-TIMEZONE = os.environ.get("TZ", "Europe/Moscow")
 USERS_FILE = "users.json"
 
 CITY_TRANSLATION = {
@@ -87,8 +85,9 @@ def translate_city(city):
     return CITY_TRANSLATION.get(city_lower, city)
 
 def get_local_time():
-    tz = pytz.timezone(TIMEZONE)
-    return datetime.now(tz).strftime('%H:%M:%S')
+    utc_time = datetime.utcnow()
+    moscow_time = utc_time + timedelta(hours=3)
+    return moscow_time.strftime('%H:%M:%S')
 
 users = load_users()
 application_global = None
@@ -240,7 +239,6 @@ def send_weather_to_all():
             print(f"❌ Ошибка для {user_id}: {e}")
 
 def scheduler_thread():
-    tz = pytz.timezone(TIMEZONE)
     schedule.every().day.at("08:00").do(send_weather_to_all)
     
     while True:
@@ -263,8 +261,7 @@ def main():
     thread.start()
     
     print("🤖 Бот запущен!")
-    print("📅 Расписание: каждый день в 8:00")
-    print(f"🕐 Часовой пояс: {TIMEZONE}")
+    print("📅 Расписание: каждый день в 8:00 (московское время)")
     print("⏰ Текущее время:", get_local_time())
     
     application.run_polling()
