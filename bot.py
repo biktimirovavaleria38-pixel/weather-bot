@@ -86,6 +86,10 @@ def translate_city(city):
     city_lower = city.lower().strip()
     return CITY_TRANSLATION.get(city_lower, city)
 
+def get_local_time():
+    tz = pytz.timezone(TIMEZONE)
+    return datetime.now(tz).strftime('%H:%M:%S')
+
 users = load_users()
 application_global = None
 
@@ -129,7 +133,7 @@ def get_weather(city):
 ☁️ <b>Облачность:</b> {clouds}%
 ☀️ <b>УФ индекс:</b> {uvi}
 
-⏰ Обновлено: {datetime.now().strftime('%H:%M:%S')}"""
+⏰ Обновлено: {get_local_time()}"""
         return message
     except Exception as e:
         return None
@@ -215,7 +219,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
 
 def send_weather_to_all():
-    print(f"📤 Рассылка погоды... ({datetime.now().strftime('%H:%M:%S')})")
+    print(f"📤 Рассылка погоды... ({get_local_time()})")
     
     if not application_global:
         return
@@ -261,7 +265,7 @@ def main():
     print("🤖 Бот запущен!")
     print("📅 Расписание: каждый день в 8:00")
     print(f"🕐 Часовой пояс: {TIMEZONE}")
-    print("⏰ Текущее время:", datetime.now().strftime('%H:%M:%S'))
+    print("⏰ Текущее время:", get_local_time())
     
     application.run_polling()
 
