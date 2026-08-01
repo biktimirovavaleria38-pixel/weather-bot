@@ -5,7 +5,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ChatAction
 import requests
 from datetime import datetime, timedelta
-import schedule
 import threading
 import time
 
@@ -89,8 +88,14 @@ def get_local_time():
     moscow_time = utc_time + timedelta(hours=3)
     return moscow_time.strftime('%H:%M:%S')
 
+def get_local_hour_minute():
+    utc_time = datetime.utcnow()
+    moscow_time = utc_time + timedelta(hours=3)
+    return moscow_time.strftime('%H:%M')
+
 users = load_users()
 application_global = None
+last_send_time = None
 
 def get_menu_keyboard():
     keyboard = [
@@ -218,7 +223,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
 
 def send_weather_to_all():
+    global last_send_time
     print(f"📤 Рассылка погоды... ({get_local_time()})")
+    last_send_time = get_local_hour_minute()
     
     if not application_global:
         return
@@ -239,11 +246,16 @@ def send_weather_to_all():
             print(f"❌ Ошибка для {user_id}: {e}")
 
 def scheduler_thread():
-    schedule.every().day.at("08:00").do(send_weather_to_all)
+    global last_send_time
+    last_send_time = None
     
     while True:
-        schedule.run_pending()
-        time.sleep(30)
+        current_time = get_local_hour_minute()
+        
+        if current_time == "08:00" and last_send_time != "08:00":
+            send_weather_to_all()
+        
+        time.sleep(60)
 
 def main():
     global application_global
