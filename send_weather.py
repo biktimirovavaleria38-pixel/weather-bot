@@ -1,10 +1,8 @@
 import json
 import os
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.constants import ChatAction
 import requests
-from datetime import datetime, timedelta
+import asyncio
+from telegram import Bot
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
@@ -67,24 +65,9 @@ CITY_TRANSLATION = {
     "севастополь": "Sevastopol",
 }
 
-def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f)
-
 def translate_city(city):
     city_lower = city.lower().strip()
     return CITY_TRANSLATION.get(city_lower, city)
-
-def get_local_time():
-    utc_time = datetime.utcnow()
-    moscow_time = utc_time + timedelta(hours=3)
-    return moscow_time.strftime('%H:%M:%S')
 
 def get_weather(city):
     try:
@@ -117,74 +100,33 @@ def get_weather(city):
 💧 <b>Влажность:</b> {humidity}%
 💨 <b>Ветер:</b> {wind_speed} м/с
 ☁️ <b>Облачность:</b> {clouds}%
-☀️ <b>УФ индекс:</b> {uvi}
-
-⏰ Обновлено: {get_local_time()}"""
+☀️ <b>УФ индекс:</b> {uvi}"""
         return message
     except:
         return None
 
-def get_menu_keyboard():
-    keyboard = [
-        ['🌤 Погода сейчас', '⚙️ Установить город'],
-        ['❓ Справка']
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = """👋 Привет! Я бот прогноза погоды.
-
-Просто напишите название города (Москва, Казань и т.д.) или используйте кнопки ниже.
-
-В 8:00 каждый день вы будете получать прогноз для вашего города."""
-    await update.message.reply_text(message, reply_markup=get_menu_keyboard())
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    text = update.message.text.strip()
-    
-    if text == "🌤 Погода сейчас":
-        if user_id not in load_users():
-            await update.message.reply_text("❌ Сначала установите город", reply_markup=get_menu_keyboard())
-            return
-        city = load_users()[user_id]
-        await update.message.chat.send_action(ChatAction.TYPING)
-        weather_msg = get_weather(city)
-        if weather_msg:
-            await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
-        return
-    elif text == "⚙️ Установить город":
-        await update.message.reply_text("Напишите название города:", reply_markup=get_menu_keyboard())
-        return
-    elif text == "❓ Справка":
-        await update.message.reply_text("📖 Используйте кнопки или напишите город", reply_markup=get_menu_keyboard())
+async def send_all():
+    if not os.path.exists(USERS_FILE):
+        print("No users file")
         return
     
-    if text.startswith('/'):
+    with open(USERS_FILE, 'r') as f:
+        users = json.load(f)
+    
+    if not users:
+        print("No users")
         return
     
-    weather_msg = get_weather(text)
+    bot = Bot(token=TELEGRAM_TOKEN)
     
-    if not weather_msg:
-        await update.message.reply_text(f"❌ Город '{text}' не найден.", reply_markup=get_menu_keyboard())
-        return
-    
-    users = load_users()
-    users[user_id] = text
-    save_users(users)
-    
-    city_en = translate_city(text)
-    await update.message.reply_text(f"✅ Город установлен: <b>{city_en.title()}</b>", parse_mode='HTML', reply_markup=get_menu_keyboard())
-    await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
-
-def main():
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    
-    print("🤖 Бот запущен!")
-    application.run_polling()
+    for user_id, city in users.items():
+        try:
+            weather_msg = get_weather(city)
+            if weather_msg:
+                await bot.send_message(chat_id=int(user_id), text=weather_msg, parse_mode='HTML')
+                print(f"✅ {user_id} ({city})")
+        except Exception as e:
+            print(f"❌ {user_id}: {e}")
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(send_all())
