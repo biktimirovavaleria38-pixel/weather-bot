@@ -1,12 +1,16 @@
-import json
 import os
 import requests
 import asyncio
 from telegram import Bot
+from supabase import create_client, Client
+from datetime import datetime, timedelta
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
-USERS_FILE = "users.json"
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 CITY_TRANSLATION = {
     "москва": "Moscow",
@@ -69,6 +73,11 @@ def translate_city(city):
     city_lower = city.lower().strip()
     return CITY_TRANSLATION.get(city_lower, city)
 
+def get_local_time():
+    utc_time = datetime.utcnow()
+    moscow_time = utc_time + timedelta(hours=3)
+    return moscow_time.strftime('%H:%M:%S')
+
 def get_weather(city):
     try:
         city_en = translate_city(city)
@@ -100,33 +109,36 @@ def get_weather(city):
 💧 <b>Влажность:</b> {humidity}%
 💨 <b>Ветер:</b> {wind_speed} м/с
 ☁️ <b>Облачность:</b> {clouds}%
-☀️ <b>УФ индекс:</b> {uvi}"""
+☀️ <b>УФ индекс:</b> {uvi}
+
+⏰ Обновлено: {get_local_time()}"""
         return message
     except:
         return None
 
 async def send_all():
-    if not os.path.exists(USERS_FILE):
-        print("No users file")
-        return
-    
-    with open(USERS_FILE, 'r') as f:
-        users = json.load(f)
-    
-    if not users:
-        print("No users")
-        return
-    
-    bot = Bot(token=TELEGRAM_TOKEN)
-    
-    for user_id, city in users.items():
-        try:
-            weather_msg = get_weather(city)
-            if weather_msg:
-                await bot.send_message(chat_id=int(user_id), text=weather_msg, parse_mode='HTML')
-                print(f"✅ {user_id} ({city})")
-        except Exception as e:
-            print(f"❌ {user_id}: {e}")
+    try:
+        response = supabase.table("users").select("user_id, city").execute()
+        users = response.data
+        
+        if not users:
+            print("No users")
+            return
+        
+        bot = Bot(token=TELEGRAM_TOKEN)
+        
+        for user in users:
+            try:
+                user_id = user['user_id']
+                city = user['city']
+                weather_msg = get_weather(city)
+                if weather_msg:
+                    await bot.send_message(chat_id=int(user_id), text=weather_msg, parse_mode='HTML')
+                    print(f"✅ {user_id} ({city})")
+            except Exception as e:
+                print(f"❌ {user['user_id']}: {e}")
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
     asyncio.run(send_all())

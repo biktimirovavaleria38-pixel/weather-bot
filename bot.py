@@ -1,14 +1,17 @@
-import json
 import os
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 import requests
 from datetime import datetime, timedelta
+from supabase import create_client, Client
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
-USERS_FILE = "users.json"
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 CITY_TRANSLATION = {
     "москва": "Moscow",
@@ -66,16 +69,6 @@ CITY_TRANSLATION = {
     "симферополь": "Simferopol",
     "севастополь": "Sevastopol",
 }
-
-def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f)
 
 def translate_city(city):
     city_lower = city.lower().strip()
@@ -144,14 +137,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
     if text == "🌤 Погода сейчас":
-        if user_id not in load_users():
-            await update.message.reply_text("❌ Сначала установите город", reply_markup=get_menu_keyboard())
-            return
-        city = load_users()[user_id]
-        await update.message.chat.send_action(ChatAction.TYPING)
-        weather_msg = get_weather(city)
-        if weather_msg:
-            await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
+        try:
+            response = supabase.table("users").select("city").eq("user_id", user_id).execute()
+            if not response.data:
+                await update.message.reply_text("❌ Сначала установите город", reply_markup=get_menu_keyboard())
+                return
+            city = response.data[0]['city']
+            await update.message.chat.send_action(ChatAction.TYPING)
+            weather_msg = get_weather(city)
+            if weather_msg:
+                await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
+        except Exception as e:
+            await update.message.reply_text("❌ Ошибка", reply_markup=get_menu_keyboard())
         return
     elif text == "⚙️ Установить город":
         await update.message.reply_text("Напишите название города:", reply_markup=get_menu_keyboard())
@@ -169,13 +166,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Город '{text}' не найден.", reply_markup=get_menu_keyboard())
         return
     
-    users = load_users()
-    users[user_id] = text
-    save_users(users)
-    
-    city_en = translate_city(text)
-    await update.message.reply_text(f"✅ Город установлен: <b>{city_en.title()}</b>", parse_mode='HTML', reply_markup=get_menu_keyboard())
-    await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
+    try:
+        city_en = translate_city(text)
+        supabase.table("users").upsert({
+            "user_id": user_id,
+            "city": text
+        }).execute()
+        await update.message.reply_text(f"✅ Город установлен: <b>{city_en.title()}</b>", parse_mode='HTML', reply_markup=get_menu_keyboard())
+        await update.message.reply_text(weather_msg, parse_mode='HTML', reply_markup=get_menu_keyboard())
+    except Exception as e:
+        await update.message.reply_text("❌ Ошибка при сохранении города", reply_markup=get_menu_keyboard())
 
 def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
